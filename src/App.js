@@ -1,698 +1,585 @@
 import { useState, useEffect, useRef } from "react";
 
-// ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
-const T = {
-  bg: "#0D0F14",
-  bgCard: "#141720",
-  bgCard2: "#1C2030",
-  gold: "#D4A847",
-  goldLight: "#F0C96A",
-  goldDim: "rgba(212,168,71,0.15)",
-  goldBorder: "rgba(212,168,71,0.3)",
-  white: "#FFFFFF",
-  offWhite: "#E8E4D8",
-  muted: "#6B7280",
-  mutedLight: "#9CA3AF",
-  green: "#22C55E",
-  greenDim: "rgba(34,197,94,0.12)",
-  red: "#EF4444",
-  redDim: "rgba(239,68,68,0.12)",
-  border: "rgba(255,255,255,0.06)",
-};
+// ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
+const SYSTEM_PROMPT = `Eres Travel Mentor AI, un coach experto en marketing digital y ventas para empresarios del sector turístico. Tu misión es guiar al emprendedor turístico paso a paso para construir su sistema completo de ventas, como si fuera una conversación natural con un consultor de alto nivel.
 
-// ─── CLAUDE API ───────────────────────────────────────────────────────────────
-async function callClaude(prompt) {
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1200,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    const data = await res.json();
-    const text = data.content?.map((b) => b.text || "").join("") || "";
-    const clean = text.replace(/```json|```/g, "").trim();
-    return JSON.parse(clean);
-  } catch {
-    return null;
-  }
+PERSONALIDAD: Cálido, directo, experto. Hablas en español. Usas ejemplos concretos del turismo. Eres como un amigo que sabe mucho de negocios digitales.
+
+TU MISIÓN es guiar al empresario a construir su sistema de ventas completo, cubriendo estos bloques en orden conversacional:
+
+1. BIENVENIDA Y CONTEXTO: Saluda, explica brevemente qué van a construir juntos y pide su nombre y el nombre de su negocio.
+
+2. OFERTA Y NICHO: Pregunta qué tipo de viajes/experiencias vende, en qué destinos se especializa, qué lo hace diferente de otras agencias.
+
+3. BUYER PERSONA: Construye su cliente ideal preguntando: quién es (edad, perfil), qué quiere lograr con el viaje, qué le frustra al buscar opciones, qué le da miedo al contratar, cuál es el sueño detrás del viaje.
+
+4. PROPUESTA DE VALOR: Con todo lo anterior, genera y presenta su propuesta de valor única (la frase que resume qué hace, para quién y qué resultado da). Pide su opinión y ajusta si es necesario.
+
+5. DIFERENCIACIÓN: Pregunta qué hace diferente a su negocio, qué experiencias únicas ofrece, por qué un cliente debería elegirlo a él y no a la competencia. Luego ayúdalo a articular su diferenciador clave.
+
+6. LEAD MAGNET (PDF GANCHO): Explica qué es un lead magnet y por qué es esencial. Propón 3 opciones de título para su PDF gancho basadas en su nicho y buyer persona. Cuando elija, genera la estructura completa del PDF: título, subtítulo, introducción, 3-4 secciones con contenido concreto, y CTA final.
+
+7. ESTRUCTURA DEL EMBUDO: Diseña su embudo personalizado con estas etapas:
+   - ATRAER: Recomendaciones de contenido para redes (tipos de posts, temas, frecuencia)
+   - CAPTURAR: Landing page simple, botón WhatsApp, formulario de contacto
+   - NUTRIR: Secuencia de mensajes WhatsApp (bienvenida, calificación, seguimiento)
+   - CONVERTIR: Guion de cierre y cotización
+   - FIDELIZAR: Post-venta y referidos
+
+8. MENSAJES DE WHATSAPP: Genera los 4 mensajes clave personalizados para su negocio:
+   - Mensaje 1: Bienvenida automática + entrega del PDF
+   - Mensaje 2: Calificación (3 preguntas específicas para su nicho)
+   - Mensaje 3: Propuesta/siguiente paso
+   - Mensaje 4: Reactivación para leads fríos
+
+9. PLAN DE CONTENIDO: Sugiere 5 ideas de Reels específicas para su nicho con hook, mensaje y CTA.
+
+10. RESUMEN Y SIGUIENTE PASO: Cuando hayas cubierto todos los bloques, indica que vas a generar el resumen ejecutivo completo. Pregunta si quiere agregar algo más antes de cerrarlo.
+
+REGLAS IMPORTANTES:
+- Haz máximo 2 preguntas a la vez para no abrumar
+- Cuando tengas suficiente información de un bloque, avanza al siguiente de forma natural
+- Usa los datos que el usuario ya te dio en respuestas anteriores, no repitas preguntas
+- Sé específico: en vez de respuestas genéricas, usa el nombre de su negocio, sus destinos, su cliente específico
+- Cuando generes contenido (PDF, mensajes, etc.) preséntalo de forma clara y estructurada
+- Si el usuario da respuestas cortas, profundiza con una pregunta de seguimiento
+- Al final de cada bloque importante, haz un pequeño resumen de lo que construyeron juntos
+- Usa emojis con moderación para dar personalidad sin exagerar
+- NUNCA menciones el programa de $597 ni hagas pitch de ventas dentro del chat — eso aparecerá al final en el resumen
+
+FORMATO DE RESPUESTAS:
+- Usa saltos de línea para separar ideas
+- Cuando presentes listas o estructuras, usa formato claro
+- Máximo 250 palabras por respuesta para mantener fluidez conversacional
+- Si vas a presentar algo largo (como el PDF o los mensajes), avisa antes: "Aquí está tu [X]:"`;
+
+// ─── CLAUDE API ────────────────────────────────────────────────────────────────
+async function sendMessage(messages) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      messages: messages,
+    }),
+  });
+  const data = await res.json();
+  return data.content?.[0]?.text || "Lo siento, hubo un error. Intenta de nuevo.";
 }
 
-// ─── CHECKLIST ITEMS ─────────────────────────────────────────────────────────
-const CHECKLIST = [
-  { id: "wa", label: "Tengo WhatsApp Business activo", icon: "💬" },
-  { id: "ig", label: "Publico contenido en Instagram regularmente", icon: "📸" },
-  { id: "pdf", label: "Tengo un PDF o checklist para atraer leads", icon: "📄" },
-  { id: "landing", label: "Tengo una página o landing para capturar contactos", icon: "🌐" },
-  { id: "respuesta", label: "Respondo consultas en menos de 1 hora", icon: "⚡" },
-  { id: "auto", label: "Tengo alguna automatización de mensajes", icon: "🤖" },
-];
+async function generateSummary(messages) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2048,
+      system: "Eres un asistente experto en marketing turístico. Tu tarea es generar un resumen ejecutivo estructurado y completo basado en la conversación proporcionada.",
+      messages: [
+        ...messages,
+        {
+          role: "user",
+          content: `Basándote en toda nuestra conversación, genera un RESUMEN EJECUTIVO COMPLETO del sistema de ventas que construimos juntos. 
+          
+Estructura el resumen así (en texto plano, sin markdown especial, usando --- para separar secciones):
 
-// ─── FUNNEL STAGES ────────────────────────────────────────────────────────────
-const STAGES = [
-  { label: "Atraer", icon: "🎯", keys: ["ig", "pdf"] },
-  { label: "Capturar", icon: "🪝", keys: ["landing", "wa"] },
-  { label: "Convertir", icon: "💰", keys: ["respuesta", "auto"] },
-];
+RESUMEN EJECUTIVO - TRAVEL MENTOR AI
+[Nombre del negocio]
 
-// ─── FONTS ────────────────────────────────────────────────────────────────────
-const FONT_URL =
-  "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap";
+---
+1. PERFIL DEL NEGOCIO
+Nombre: 
+Nicho/Especialidad:
+Destinos principales:
 
-// ─── GLOBAL STYLES ────────────────────────────────────────────────────────────
-const CSS = `
-@import url('${FONT_URL}');
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: ${T.goldBorder}; border-radius: 99px; }
-body { background: ${T.bg}; color: ${T.offWhite}; font-family: 'DM Sans', sans-serif; }
-button { cursor: pointer; font-family: 'DM Sans', sans-serif; border: none; outline: none; }
-input, textarea, select { font-family: 'DM Sans', sans-serif; outline: none; }
-@keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-@keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-@keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
-@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-@keyframes scalePop { 0%{transform:scale(0.95);opacity:0} 100%{transform:scale(1);opacity:1} }
-.fade-up { animation: fadeUp 0.5s cubic-bezier(0.4,0,0.2,1) both; }
-.fade-in { animation: fadeIn 0.4s ease both; }
-.scale-pop { animation: scalePop 0.4s cubic-bezier(0.34,1.56,0.64,1) both; }
-.gold-text { 
-  background: linear-gradient(135deg, ${T.gold}, ${T.goldLight}, ${T.gold});
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+---
+2. BUYER PERSONA
+Perfil del cliente ideal:
+Qué busca:
+Sus miedos:
+Su sueño:
+
+---
+3. PROPUESTA DE VALOR
+[La frase de propuesta de valor]
+
+---
+4. DIFERENCIADOR CLAVE
+[Qué lo hace único]
+
+---
+5. LEAD MAGNET (PDF GANCHO)
+Título:
+Estructura:
+- Sección 1:
+- Sección 2:
+- Sección 3:
+CTA Final:
+
+---
+6. ESTRUCTURA DEL EMBUDO
+ATRAER:
+CAPTURAR:
+NUTRIR:
+CONVERTIR:
+FIDELIZAR:
+
+---
+7. MENSAJES DE WHATSAPP
+Mensaje 1 - Bienvenida:
+[texto completo]
+
+Mensaje 2 - Calificación:
+[texto completo]
+
+Mensaje 3 - Propuesta:
+[texto completo]
+
+Mensaje 4 - Reactivación:
+[texto completo]
+
+---
+8. IDEAS DE CONTENIDO (REELS)
+1. [Hook + Mensaje + CTA]
+2. [Hook + Mensaje + CTA]
+3. [Hook + Mensaje + CTA]
+4. [Hook + Mensaje + CTA]
+5. [Hook + Mensaje + CTA]
+
+---
+9. PRÓXIMOS PASOS RECOMENDADOS
+1.
+2.
+3.
+
+---
+Generado por Travel Mentor AI · pandoraco.co`
+        }
+      ],
+    }),
+  });
+  const data = await res.json();
+  return data.content?.[0]?.text || "";
 }
-.shimmer-btn {
-  background: linear-gradient(90deg, ${T.gold} 0%, ${T.goldLight} 50%, ${T.gold} 100%);
-  background-size: 200% 100%;
-  animation: shimmer 2s infinite;
-}
-`;
 
-// ─── SUB COMPONENTS ───────────────────────────────────────────────────────────
-function GoldDivider() {
+// ─── STYLES ────────────────────────────────────────────────────────────────────
+const FONT_URL = "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap";
+
+const CSS = [
+  "@import url('" + FONT_URL + "');",
+  "*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }",
+  "html, body { height: 100%; }",
+  "body { background: #0A0C10; color: #E8E4D8; font-family: 'DM Sans', sans-serif; overflow: hidden; }",
+  "#root { height: 100vh; display: flex; flex-direction: column; }",
+  "button { cursor: pointer; font-family: 'DM Sans', sans-serif; border: none; outline: none; }",
+  "input, textarea { font-family: 'DM Sans', sans-serif; outline: none; }",
+  "::-webkit-scrollbar { width: 4px; }",
+  "::-webkit-scrollbar-track { background: transparent; }",
+  "::-webkit-scrollbar-thumb { background: rgba(212,168,71,0.25); border-radius: 99px; }",
+  "@keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }",
+  "@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }",
+  "@keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }",
+  "@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }",
+  "@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }",
+  ".msg-appear { animation: fadeUp 0.35s cubic-bezier(0.4,0,0.2,1) both; }",
+  ".gold-text { background: linear-gradient(135deg,#D4A847,#F0C96A,#D4A847); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }",
+  ".shimmer-btn { background: linear-gradient(90deg,#D4A847 0%,#F0C96A 50%,#D4A847 100%); background-size:200% 100%; animation:shimmer 2.5s infinite; }",
+  "pre { white-space: pre-wrap; word-break: break-word; font-family: 'DM Sans', sans-serif; }",
+].join(" ");
+
+// ─── TYPING INDICATOR ──────────────────────────────────────────────────────────
+function TypingDots() {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "28px 0" }}>
-      <div style={{ flex: 1, height: 1, background: T.goldBorder }} />
-      <div style={{ width: 6, height: 6, borderRadius: "50%", background: T.gold }} />
-      <div style={{ flex: 1, height: 1, background: T.goldBorder }} />
-    </div>
-  );
-}
-
-function Tag({ children, color = T.gold }) {
-  return (
-    <span style={{
-      display: "inline-block", padding: "3px 10px", borderRadius: 99,
-      background: `${color}18`, border: `1px solid ${color}40`,
-      fontSize: 11, fontFamily: "'DM Mono', monospace", color,
-      letterSpacing: 1, textTransform: "uppercase",
-    }}>{children}</span>
-  );
-}
-
-function Loader() {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: "40px 0" }}>
-      <div style={{
-        width: 40, height: 40, borderRadius: "50%",
-        border: `2px solid ${T.goldBorder}`,
-        borderTopColor: T.gold,
-        animation: "spin 0.8s linear infinite",
-      }} />
-      <p style={{ color: T.muted, fontSize: 13, animation: "pulse 1.5s infinite" }}>
-        Analizando tu negocio con IA...
-      </p>
-    </div>
-  );
-}
-
-function Input({ label, placeholder, value, onChange, type = "text" }) {
-  return (
-    <div style={{ marginBottom: 20 }}>
-      <label style={{ display: "block", fontSize: 13, color: T.mutedLight, marginBottom: 8, fontWeight: 500 }}>
-        {label}
-      </label>
-      {type === "textarea" ? (
-        <textarea
-          value={value} onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder} rows={3}
-          style={{
-            width: "100%", background: T.bgCard2, border: `1px solid ${T.border}`,
-            borderRadius: 12, padding: "12px 16px", color: T.white, fontSize: 14,
-            resize: "none", lineHeight: 1.6, transition: "border-color 0.2s",
-          }}
-          onFocus={(e) => (e.target.style.borderColor = T.goldBorder)}
-          onBlur={(e) => (e.target.style.borderColor = T.border)}
-        />
-      ) : (
-        <input
-          type="text" value={value} onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          style={{
-            width: "100%", background: T.bgCard2, border: `1px solid ${T.border}`,
-            borderRadius: 12, padding: "12px 16px", color: T.white, fontSize: 14,
-            transition: "border-color 0.2s",
-          }}
-          onFocus={(e) => (e.target.style.borderColor = T.goldBorder)}
-          onBlur={(e) => (e.target.style.borderColor = T.border)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ─── SCREEN 1: WELCOME ────────────────────────────────────────────────────────
-function Welcome({ onStart }) {
-  return (
-    <div className="fade-up" style={{ textAlign: "center", padding: "20px 0 40px" }}>
-      <div style={{ marginBottom: 32 }}>
-        <Tag>Travel Mentor · Diagnóstico</Tag>
-      </div>
-
-      <h1 style={{
-        fontFamily: "'Cormorant Garamond', serif", fontSize: 44, fontWeight: 700,
-        color: T.white, lineHeight: 1.15, marginBottom: 20,
-      }}>
-        Descubre qué le falta a<br />
-        <span className="gold-text">tu embudo de ventas</span>
-      </h1>
-
-      <p style={{ color: T.mutedLight, fontSize: 16, lineHeight: 1.7, maxWidth: 460, margin: "0 auto 40px" }}>
-        En 4 bloques rápidos la IA analiza tu negocio turístico y te entrega un plan concreto para vender más sin perseguir clientes.
-      </p>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 40, textAlign: "left" }}>
-        {[
-          ["🎯", "Tu oferta en palabras claras"],
-          ["👤", "Tu cliente ideal definido"],
-          ["📊", "Diagnóstico de tu embudo"],
-          ["🗺️", "Tu plan de acción personalizado"],
-        ].map(([icon, text]) => (
-          <div key={text} style={{
-            background: T.bgCard, border: `1px solid ${T.border}`,
-            borderRadius: 14, padding: "16px", display: "flex", alignItems: "center", gap: 12,
-          }}>
-            <span style={{ fontSize: 22 }}>{icon}</span>
-            <span style={{ fontSize: 13, color: T.offWhite, lineHeight: 1.4 }}>{text}</span>
-          </div>
-        ))}
-      </div>
-
-      <button
-        onClick={onStart}
-        className="shimmer-btn"
-        style={{
-          width: "100%", padding: "18px", borderRadius: 14,
-          color: T.bg, fontSize: 16, fontWeight: 700, letterSpacing: 0.3,
-        }}
-      >
-        Comenzar mi diagnóstico →
-      </button>
-
-      <p style={{ color: T.muted, fontSize: 12, marginTop: 16 }}>
-        ✦ Toma 20 minutos · Resultado inmediato con IA
-      </p>
-    </div>
-  );
-}
-
-// ─── SCREEN 2: BLOQUE 1 — Tu Oferta ──────────────────────────────────────────
-function BloqueOferta({ data, onChange, onNext, loading }) {
-  const valid = data.negocio && data.destino && data.cliente && data.promesa;
-  return (
-    <div className="fade-up">
-      <div style={{ marginBottom: 28 }}>
-        <Tag>Bloque 1 de 4</Tag>
-        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 34, fontWeight: 700, color: T.white, margin: "12px 0 8px" }}>
-          Tu <span className="gold-text">Oferta</span>
-        </h2>
-        <p style={{ color: T.muted, fontSize: 14, lineHeight: 1.6 }}>
-          Vamos a construir la base. Cuéntame sobre tu negocio con tus propias palabras.
-        </p>
-      </div>
-      <GoldDivider />
-      <Input label="¿Cómo se llama tu negocio o agencia?" placeholder="Ej: Viajes Perfectos, TravelPro, Escapadas Mías..." value={data.negocio} onChange={(v) => onChange("negocio", v)} />
-      <Input label="¿En qué destinos o experiencias te especializas?" placeholder="Ej: Cancún, Europa, tours de aventura en Colombia..." value={data.destino} onChange={(v) => onChange("destino", v)} />
-      <Input label="¿A quién le vendes? ¿Quién es tu cliente ideal?" placeholder="Ej: Parejas de 35-50 años, familias con niños, viajeros solos..." value={data.cliente} onChange={(v) => onChange("cliente", v)} />
-      <Input label="¿Qué prometes que logran contigo que no logran solos?" placeholder="Ej: Un viaje organizado sin estrés y sin sorpresas de último minuto..." value={data.promesa} onChange={(v) => onChange("promesa", v)} type="textarea" />
-      <button
-        onClick={onNext} disabled={!valid || loading}
-        style={{
-          width: "100%", padding: "16px", borderRadius: 14,
-          background: valid && !loading ? T.gold : T.bgCard2,
-          color: valid && !loading ? T.bg : T.muted,
-          fontSize: 15, fontWeight: 700, transition: "all 0.2s",
-        }}
-      >
-        {loading ? "Generando con IA..." : "Generar mi oferta →"}
-      </button>
-    </div>
-  );
-}
-
-// ─── SCREEN 3: BLOQUE 2 — Tu Cliente ─────────────────────────────────────────
-function BloqueCliente({ data, onChange, onNext, loading }) {
-  const valid = data.frustracion && data.miedo && data.sueno;
-  return (
-    <div className="fade-up">
-      <div style={{ marginBottom: 28 }}>
-        <Tag>Bloque 2 de 4</Tag>
-        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 34, fontWeight: 700, color: T.white, margin: "12px 0 8px" }}>
-          Tu <span className="gold-text">Cliente Ideal</span>
-        </h2>
-        <p style={{ color: T.muted, fontSize: 14, lineHeight: 1.6 }}>
-          Quien conoce a su cliente profundamente vende sin esfuerzo. Piensa en tu mejor cliente actual.
-        </p>
-      </div>
-      <GoldDivider />
-      <Input label="¿Qué es lo que más le frustra cuando busca un viaje?" placeholder="Ej: Comparar demasiadas opciones sin saber cuál elegir, no saber en quién confiar..." value={data.frustracion} onChange={(v) => onChange("frustracion", v)} type="textarea" />
-      <Input label="¿Qué es lo que más le da miedo al contratar?" placeholder="Ej: Que algo salga mal, perder su dinero, que no cumpla con lo prometido..." value={data.miedo} onChange={(v) => onChange("miedo", v)} type="textarea" />
-      <Input label="¿Cuál es el sueño detrás de ese viaje?" placeholder="Ej: Crear recuerdos en familia, descansar de verdad, vivir una experiencia única..." value={data.sueno} onChange={(v) => onChange("sueno", v)} type="textarea" />
-      <button
-        onClick={onNext} disabled={!valid || loading}
-        style={{
-          width: "100%", padding: "16px", borderRadius: 14,
-          background: valid && !loading ? T.gold : T.bgCard2,
-          color: valid && !loading ? T.bg : T.muted,
-          fontSize: 15, fontWeight: 700, transition: "all 0.2s",
-        }}
-      >
-        {loading ? "Analizando..." : "Analizar mi cliente →"}
-      </button>
-    </div>
-  );
-}
-
-// ─── SCREEN 4: BLOQUE 3 — Tu Situación ───────────────────────────────────────
-function BloqueSituacion({ checks, onToggle, onNext }) {
-  const count = checks.filter(Boolean).length;
-  const pct = Math.round((count / CHECKLIST.length) * 100);
-  return (
-    <div className="fade-up">
-      <div style={{ marginBottom: 28 }}>
-        <Tag>Bloque 3 de 4</Tag>
-        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 34, fontWeight: 700, color: T.white, margin: "12px 0 8px" }}>
-          Tu <span className="gold-text">Situación Actual</span>
-        </h2>
-        <p style={{ color: T.muted, fontSize: 14, lineHeight: 1.6 }}>
-          Marca honestamente lo que ya tienes funcionando hoy.
-        </p>
-      </div>
-      <GoldDivider />
-
-      {/* Progress meter */}
-      <div style={{ background: T.bgCard2, borderRadius: 14, padding: "16px 20px", marginBottom: 24, border: `1px solid ${T.border}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-          <span style={{ fontSize: 13, color: T.mutedLight }}>Tu embudo está listo al</span>
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 16, color: T.gold, fontWeight: 700 }}>{pct}%</span>
-        </div>
-        <div style={{ height: 6, background: T.border, borderRadius: 99, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${T.gold}, ${T.goldLight})`, borderRadius: 99, transition: "width 0.4s ease" }} />
-        </div>
-      </div>
-
-      {CHECKLIST.map((item, i) => (
-        <div
-          key={item.id}
-          onClick={() => onToggle(i)}
-          style={{
-            display: "flex", alignItems: "center", gap: 14,
-            background: checks[i] ? T.goldDim : T.bgCard,
-            border: `1px solid ${checks[i] ? T.goldBorder : T.border}`,
-            borderRadius: 12, padding: "14px 16px", marginBottom: 10,
-            cursor: "pointer", transition: "all 0.2s",
-          }}
-        >
-          <div style={{
-            width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-            background: checks[i] ? T.gold : "transparent",
-            border: `2px solid ${checks[i] ? T.gold : T.muted}`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            transition: "all 0.2s",
-          }}>
-            {checks[i] && <span style={{ color: T.bg, fontSize: 13, fontWeight: 900 }}>✓</span>}
-          </div>
-          <span style={{ fontSize: 18 }}>{item.icon}</span>
-          <span style={{ fontSize: 14, color: checks[i] ? T.offWhite : T.mutedLight, lineHeight: 1.4 }}>{item.label}</span>
-        </div>
+    <div style={{ display:"flex", alignItems:"center", gap:4, padding:"14px 18px", background:"#141720", borderRadius:"18px 18px 18px 4px", width:"fit-content", border:"1px solid rgba(255,255,255,0.06)" }}>
+      {[0,1,2].map(i => (
+        <div key={i} style={{ width:6, height:6, borderRadius:"50%", background:"#D4A847", animation:"pulse 1.2s infinite", animationDelay: i * 0.2 + "s" }} />
       ))}
-
-      <div style={{ marginTop: 24 }}>
-        <button
-          onClick={onNext}
-          style={{
-            width: "100%", padding: "16px", borderRadius: 14,
-            background: T.gold, color: T.bg, fontSize: 15, fontWeight: 700,
-          }}
-        >
-          Ver mi diagnóstico →
-        </button>
-      </div>
     </div>
   );
 }
 
-// ─── SCREEN 5: RESULTADO ──────────────────────────────────────────────────────
-function Resultado({ resultado, checks, ofertaData }) {
-  const count = checks.filter(Boolean).length;
-  const pct = Math.round((count / CHECKLIST.length) * 100);
-
-  const nivel = pct < 35 ? { label: "Embudo en construcción", color: T.red, icon: "🔧" }
-    : pct < 70 ? { label: "Embudo a medio camino", color: T.gold, icon: "⚡" }
-    : { label: "Embudo casi listo", color: T.green, icon: "🚀" };
-
+// ─── MESSAGE BUBBLE ────────────────────────────────────────────────────────────
+function MessageBubble({ msg }) {
+  const isAI = msg.role === "assistant";
   return (
-    <div className="fade-up">
-      {/* Header resultado */}
-      <div style={{ textAlign: "center", marginBottom: 32 }}>
-        <Tag>Tu Diagnóstico Personalizado</Tag>
-        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 36, fontWeight: 700, color: T.white, margin: "16px 0 8px", lineHeight: 1.2 }}>
-          {ofertaData.negocio || "Tu negocio"}, aquí está<br />
-          <span className="gold-text">tu hoja de ruta</span>
-        </h2>
-      </div>
-
-      {/* Nivel del embudo */}
-      <div style={{
-        background: T.bgCard, border: `1px solid ${nivel.color}40`,
-        borderRadius: 16, padding: "20px 24px", marginBottom: 20,
-        display: "flex", alignItems: "center", gap: 20,
-      }}>
+    <div className="msg-appear" style={{
+      display: "flex",
+      justifyContent: isAI ? "flex-start" : "flex-end",
+      marginBottom: 12,
+      gap: 10,
+      alignItems: "flex-end",
+    }}>
+      {isAI && (
         <div style={{
-          width: 72, height: 72, borderRadius: "50%",
-          background: `${nivel.color}18`, border: `2px solid ${nivel.color}40`,
+          width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+          background: "linear-gradient(135deg, #D4A847, #F0C96A)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          flexShrink: 0,
-        }}>
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 20, color: nivel.color, fontWeight: 700 }}>{pct}%</span>
-        </div>
-        <div>
-          <p style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: nivel.color, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>
-            {nivel.icon} {nivel.label}
-          </p>
-          <p style={{ fontSize: 14, color: T.mutedLight, lineHeight: 1.5 }}>
-            Tienes {count} de {CHECKLIST.length} elementos del embudo activos
-          </p>
-        </div>
-      </div>
-
-      {/* Tu Oferta generada */}
-      {resultado?.oferta && (
-        <div style={{ background: T.bgCard, border: `1px solid ${T.goldBorder}`, borderRadius: 16, padding: "20px 24px", marginBottom: 16 }}>
-          <p style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gold, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>
-            ✦ Tu oferta lista para usar
-          </p>
-          <p style={{ fontSize: 18, fontFamily: "'Cormorant Garamond', serif", color: T.white, fontWeight: 600, lineHeight: 1.5, marginBottom: 12 }}>
-            "{resultado.oferta}"
-          </p>
-          {resultado.mensaje_cliente && (
-            <div style={{ background: T.bgCard2, borderRadius: 10, padding: "12px 16px", borderLeft: `3px solid ${T.gold}` }}>
-              <p style={{ fontSize: 12, color: T.gold, marginBottom: 4, fontFamily: "'DM Mono', monospace" }}>MENSAJE QUE CONECTA</p>
-              <p style={{ fontSize: 13, color: T.offWhite, lineHeight: 1.6 }}>{resultado.mensaje_cliente}</p>
-            </div>
-          )}
-        </div>
+          fontSize: 14, fontWeight: 700, color: "#0A0C10",
+          fontFamily: "'Cormorant Garamond', serif",
+        }}>T</div>
       )}
-
-      {/* Mapa del embudo */}
-      <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 16, padding: "20px 24px", marginBottom: 16 }}>
-        <p style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.mutedLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 16 }}>
-          📊 Tu mapa de embudo
-        </p>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-          {STAGES.map((stage) => {
-            const stageChecks = stage.keys.map((k) => {
-              const idx = CHECKLIST.findIndex((c) => c.id === k);
-              return checks[idx];
-            });
-            const stagePct = Math.round((stageChecks.filter(Boolean).length / stageChecks.length) * 100);
-            const done = stagePct === 100;
-            return (
-              <div key={stage.label} style={{
-                background: T.bgCard2, borderRadius: 12, padding: "14px 12px", textAlign: "center",
-                border: `1px solid ${done ? T.goldBorder : T.border}`,
-              }}>
-                <div style={{ fontSize: 24, marginBottom: 6 }}>{stage.icon}</div>
-                <p style={{ fontSize: 12, color: done ? T.gold : T.muted, fontWeight: 600, marginBottom: 4 }}>{stage.label}</p>
-                <p style={{ fontFamily: "'DM Mono', monospace", fontSize: 14, color: done ? T.gold : T.mutedLight }}>{stagePct}%</p>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Plan de acción */}
-      {resultado?.pasos && (
-        <div style={{ background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 16, padding: "20px 24px", marginBottom: 20 }}>
-          <p style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.mutedLight, textTransform: "uppercase", letterSpacing: 1, marginBottom: 16 }}>
-            🗺️ Tus próximos pasos
-          </p>
-          {resultado.pasos.map((paso, i) => (
-            <div key={i} style={{ display: "flex", gap: 14, marginBottom: 14, alignItems: "flex-start" }}>
-              <div style={{
-                width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-                background: T.goldDim, border: `1px solid ${T.goldBorder}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontFamily: "'DM Mono', monospace", fontSize: 12, color: T.gold, fontWeight: 700,
-              }}>{i + 1}</div>
-              <div>
-                <p style={{ fontSize: 14, color: T.offWhite, fontWeight: 600, marginBottom: 3 }}>{paso.titulo}</p>
-                <p style={{ fontSize: 13, color: T.muted, lineHeight: 1.5 }}>{paso.descripcion}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* CTA al programa */}
       <div style={{
-        background: `linear-gradient(135deg, ${T.goldDim}, rgba(212,168,71,0.08))`,
-        border: `1px solid ${T.goldBorder}`,
-        borderRadius: 20, padding: "28px 24px", marginBottom: 8, textAlign: "center",
+        maxWidth: "75%",
+        background: isAI ? "#141720" : "linear-gradient(135deg, #D4A847, #C9963F)",
+        color: isAI ? "#E8E4D8" : "#0A0C10",
+        padding: "12px 16px",
+        borderRadius: isAI ? "18px 18px 18px 4px" : "18px 18px 4px 18px",
+        fontSize: 14,
+        lineHeight: 1.7,
+        border: isAI ? "1px solid rgba(255,255,255,0.06)" : "none",
+        fontWeight: isAI ? 400 : 500,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
       }}>
-        <p style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: T.gold, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 12 }}>
-          ✦ Tu siguiente paso natural
-        </p>
-        <h3 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 26, color: T.white, fontWeight: 700, lineHeight: 1.3, marginBottom: 12 }}>
-          Monta todo este embudo en 30 días con el{" "}
-          <span className="gold-text">Programa Travel Mentor</span>
-        </h3>
-        <p style={{ fontSize: 14, color: T.mutedLight, lineHeight: 1.7, marginBottom: 24 }}>
-          {resultado?.pitch || "Ya sabes exactamente qué necesitas. El programa te da las herramientas, la plataforma y el acompañamiento para ejecutarlo — sin empezar desde cero."}
-        </p>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 24, textAlign: "left" }}>
-          {["Plataforma SalesHub incluida", "Embudos preconfigurados", "Automatizaciones listas", "Acompañamiento en cohorte"].map((item) => (
-            <div key={item} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ color: T.gold, fontSize: 14 }}>✦</span>
-              <span style={{ fontSize: 13, color: T.offWhite }}>{item}</span>
-            </div>
-          ))}
-        </div>
-        <a
-          href="https://travel.pandoraco.co"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ display: "block", textDecoration: "none" }}
-        >
-          <button className="shimmer-btn" style={{
-            width: "100%", padding: "18px", borderRadius: 14,
-            color: T.bg, fontSize: 16, fontWeight: 700, letterSpacing: 0.3,
-          }}>
-            Quiero el Programa Travel Mentor →
-          </button>
-        </a>
-        <p style={{ color: T.muted, fontSize: 12, marginTop: 12 }}>
-          Programa completo con SalesHub · USD $597
-        </p>
+        {msg.content}
       </div>
+      {!isAI && (
+        <div style={{
+          width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+          background: "#1C2030", border: "1px solid rgba(255,255,255,0.1)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 16,
+        }}>👤</div>
+      )}
     </div>
   );
 }
 
-// ─── PROGRESS INDICATOR ───────────────────────────────────────────────────────
-function Progress({ step }) {
-  const steps = ["Oferta", "Cliente", "Situación", "Resultado"];
+// ─── SUMMARY MODAL ──────────────────────────────────────────────────────────────
+function SummaryModal({ summary, onClose, onDownload }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0, marginBottom: 40 }}>
-      {steps.map((s, i) => {
-        const active = i === step - 1;
-        const done = i < step - 1;
-        return (
-          <div key={s} style={{ display: "flex", alignItems: "center" }}>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: "50%",
-                background: done ? T.gold : active ? T.goldDim : T.bgCard2,
-                border: `2px solid ${done || active ? T.gold : T.border}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                transition: "all 0.3s",
-              }}>
-                {done
-                  ? <span style={{ color: T.bg, fontSize: 14, fontWeight: 900 }}>✓</span>
-                  : <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: active ? T.gold : T.muted }}>{i + 1}</span>
-                }
-              </div>
-              <span style={{ fontSize: 10, color: active ? T.gold : T.muted, fontFamily: "'DM Mono', monospace", textTransform: "uppercase", letterSpacing: 0.5, whiteSpace: "nowrap" }}>
-                {s}
-              </span>
-            </div>
-            {i < steps.length - 1 && (
-              <div style={{ width: 40, height: 1, background: done ? T.goldBorder : T.border, margin: "0 4px", marginBottom: 20, transition: "all 0.3s" }} />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── MAIN APP ─────────────────────────────────────────────────────────────────
-export default function App() {
-  const [screen, setScreen] = useState("welcome"); // welcome | b1 | loading1 | b2 | loading2 | b3 | loading3 | resultado
-  const [ofertaData, setOfertaData] = useState({ negocio: "", destino: "", cliente: "", promesa: "" });
-  const [clienteData, setClienteData] = useState({ frustracion: "", miedo: "", sueno: "" });
-  const [checks, setChecks] = useState(new Array(CHECKLIST.length).fill(false));
-  const [resultado, setResultado] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const topRef = useRef(null);
-
-  useEffect(() => {
-    topRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [screen]);
-
-  function handleOfertaField(key, val) {
-    setOfertaData((p) => ({ ...p, [key]: val }));
-  }
-  function handleClienteField(key, val) {
-    setClienteData((p) => ({ ...p, [key]: val }));
-  }
-  function toggleCheck(i) {
-    setChecks((p) => { const n = [...p]; n[i] = !n[i]; return n; });
-  }
-
-  async function handleOfertaNext() {
-    setLoading(true);
-    setScreen("loading1");
-    const prompt = `Eres experto en marketing turístico y copywriting de ventas. Con esta info de un empresario turístico:
-- Negocio: ${ofertaData.negocio}
-- Destinos/especialidad: ${ofertaData.destino}
-- Cliente ideal: ${ofertaData.cliente}
-- Promesa: ${ofertaData.promesa}
-
-Genera en español, SOLO JSON sin texto extra:
-{
-  "oferta": "Su propuesta de valor en 1 frase poderosa (máx 15 palabras, resultado + para quién + sin dolor)",
-  "mensaje_cliente": "Mensaje de 2 líneas para redes que haga que su cliente diga 'esto es para mí' (usa segunda persona, habla de su emoción o miedo)"
-}`;
-    const res = await callClaude(prompt);
-    setResultado((p) => ({ ...p, ...res }));
-    setLoading(false);
-    setScreen("b2");
-  }
-
-  async function handleClienteNext() {
-    setLoading(true);
-    setScreen("loading2");
-    // Just move to b3 after brief pause — client analysis stored for final result
-    await new Promise((r) => setTimeout(r, 800));
-    setLoading(false);
-    setScreen("b3");
-  }
-
-  async function handleSituacionNext() {
-    setLoading(true);
-    setScreen("loading3");
-    const count = checks.filter(Boolean).length;
-    const pct = Math.round((count / CHECKLIST.length) * 100);
-    const faltantes = CHECKLIST.filter((_, i) => !checks[i]).map((c) => c.label);
-    const prompt = `Eres consultor de embudos digitales para turismo. Analiza este empresario:
-- Negocio: ${ofertaData.negocio}, especialidad: ${ofertaData.destino}
-- Cliente: ${ofertaData.cliente}
-- Promesa: ${ofertaData.promesa}
-- Frustración cliente: ${clienteData.frustracion}
-- Miedo cliente: ${clienteData.miedo}
-- Sueño cliente: ${clienteData.sueno}
-- Embudo listo al: ${pct}%
-- Le falta: ${faltantes.join(", ") || "nada — tiene todo"}
-
-Genera en español, SOLO JSON sin texto extra:
-{
-  "pasos": [
-    {"titulo": "Paso concreto 1", "descripcion": "Explicación de 1 línea de por qué y cómo hacerlo"},
-    {"titulo": "Paso concreto 2", "descripcion": "Explicación de 1 línea"},
-    {"titulo": "Paso concreto 3", "descripcion": "Explicación de 1 línea"}
-  ],
-  "pitch": "Párrafo de 2-3 líneas personalizado para este empresario explicando por qué el programa de $597 con SalesHub es su siguiente paso lógico dado su situación actual (menciona lo que le falta y cómo el programa lo resuelve)"
-}`;
-    const res = await callClaude(prompt);
-    setResultado((p) => ({ ...p, ...res }));
-    setLoading(false);
-    setScreen("resultado");
-  }
-
-  const stepNum = { welcome: 0, b1: 1, loading1: 1, b2: 2, loading2: 2, b3: 3, loading3: 3, resultado: 4 }[screen] || 0;
-
-  return (
-    <>
-      <style>{CSS}</style>
-      <div style={{ minHeight: "100vh", background: T.bg, paddingBottom: 60 }}>
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 100,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+    }}>
+      <div style={{
+        background: "#141720", border: "1px solid rgba(212,168,71,0.3)",
+        borderRadius: 20, width: "100%", maxWidth: 680, maxHeight: "85vh",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+      }}>
         {/* Header */}
         <div style={{
-          borderBottom: `1px solid ${T.border}`,
-          padding: "16px 24px",
+          padding: "20px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)",
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          position: "sticky", top: 0, background: `${T.bg}ee`, backdropFilter: "blur(12px)", zIndex: 10,
+          flexShrink: 0,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.gold }} />
-            <span style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 18, fontWeight: 700, color: T.white }}>
-              Travel Mentor
-            </span>
+          <div>
+            <div style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: "#D4A847", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
+              ✦ Resumen Ejecutivo
+            </div>
+            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 22, fontWeight: 700, color: "#fff" }}>
+              Tu Sistema de Ventas
+            </h2>
           </div>
-          <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, color: T.muted }}>
-            DIAGNÓSTICO DE EMBUDO
-          </span>
+          <button onClick={onClose} style={{
+            width: 36, height: 36, borderRadius: "50%", background: "rgba(255,255,255,0.08)",
+            color: "#9CA3AF", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center",
+          }}>×</button>
         </div>
 
         {/* Content */}
-        <div ref={topRef} style={{ maxWidth: 560, margin: "0 auto", padding: "40px 20px 0" }}>
-          {stepNum > 0 && stepNum < 4 && <Progress step={stepNum} />}
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+          <pre style={{ fontSize: 13, lineHeight: 1.8, color: "#E8E4D8", fontFamily: "'DM Sans', sans-serif" }}>
+            {summary}
+          </pre>
+        </div>
 
-          {screen === "welcome" && <Welcome onStart={() => setScreen("b1")} />}
-
-          {screen === "b1" && (
-            <BloqueOferta data={ofertaData} onChange={handleOfertaField} onNext={handleOfertaNext} loading={loading} />
-          )}
-
-          {screen === "loading1" && (
-            <div className="fade-in"><Progress step={1} /><Loader /></div>
-          )}
-
-          {screen === "b2" && (
-            <BloqueCliente data={clienteData} onChange={handleClienteField} onNext={handleClienteNext} loading={loading} />
-          )}
-
-          {screen === "loading2" && (
-            <div className="fade-in"><Progress step={2} /><Loader /></div>
-          )}
-
-          {screen === "b3" && (
-            <BloqueSituacion checks={checks} onToggle={toggleCheck} onNext={handleSituacionNext} />
-          )}
-
-          {screen === "loading3" && (
-            <div className="fade-in"><Progress step={3} /><Loader /></div>
-          )}
-
-          {screen === "resultado" && (
-            <Resultado resultado={resultado} checks={checks} ofertaData={ofertaData} />
-          )}
+        {/* Actions */}
+        <div style={{
+          padding: "16px 24px", borderTop: "1px solid rgba(255,255,255,0.06)",
+          display: "flex", gap: 12, flexShrink: 0,
+        }}>
+          <button onClick={onDownload} className="shimmer-btn" style={{
+            flex: 1, padding: "13px", borderRadius: 12,
+            color: "#0A0C10", fontSize: 14, fontWeight: 700,
+          }}>
+            ⬇️ Descargar como TXT
+          </button>
+          <button onClick={onClose} style={{
+            padding: "13px 20px", borderRadius: 12,
+            background: "rgba(255,255,255,0.06)", color: "#9CA3AF", fontSize: 14,
+          }}>
+            Cerrar
+          </button>
         </div>
       </div>
-    </>
+    </div>
+  );
+}
+
+// ─── MAIN APP ──────────────────────────────────────────────────────────────────
+export default function App() {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [started, setStarted] = useState(false);
+  const [summary, setSummary] = useState(null);
+  const [generatingSummary, setGeneratingSummary] = useState(false);
+  const bottomRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(function() {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, loading]);
+
+  async function startChat() {
+    setStarted(true);
+    setLoading(true);
+    const firstMessage = await sendMessage([
+      { role: "user", content: "Hola, quiero construir mi sistema de ventas para mi negocio de turismo." }
+    ]);
+    setMessages([
+      { role: "user", content: "Hola, quiero construir mi sistema de ventas para mi negocio de turismo." },
+      { role: "assistant", content: firstMessage }
+    ]);
+    setLoading(false);
+    setTimeout(function() { if (inputRef.current) inputRef.current.focus(); }, 100);
+  }
+
+  async function sendUserMessage() {
+    if (!input.trim() || loading) return;
+    const userMsg = { role: "user", content: input.trim() };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setInput("");
+    setLoading(true);
+
+    const apiMessages = newMessages.map(function(m) {
+      return { role: m.role, content: m.content };
+    });
+    const reply = await sendMessage(apiMessages);
+    setMessages(function(prev) { return [...prev, { role: "assistant", content: reply }]; });
+    setLoading(false);
+    setTimeout(function() { if (inputRef.current) inputRef.current.focus(); }, 100);
+  }
+
+  function handleKey(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendUserMessage();
+    }
+  }
+
+  async function handleGenerateSummary() {
+    setGeneratingSummary(true);
+    const sum = await generateSummary(messages.map(function(m) {
+      return { role: m.role, content: m.content };
+    }));
+    setSummary(sum);
+    setGeneratingSummary(false);
+  }
+
+  function handleDownload() {
+    if (!summary) return;
+    const blob = new Blob([summary], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "travel-mentor-plan.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const msgCount = messages.filter(function(m) { return m.role === "user"; }).length;
+
+  return (
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#0A0C10" }}>
+      <style>{CSS}</style>
+
+      {/* HEADER */}
+      <div style={{
+        flexShrink: 0,
+        background: "rgba(10,12,16,0.95)",
+        backdropFilter: "blur(16px)",
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        padding: "14px 20px",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: "50%",
+            background: "linear-gradient(135deg, #D4A847, #F0C96A)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 16, fontWeight: 900, color: "#0A0C10",
+            fontFamily: "'Cormorant Garamond', serif",
+            boxShadow: "0 0 16px rgba(212,168,71,0.3)",
+          }}>T</div>
+          <div>
+            <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 17, fontWeight: 700, color: "#fff", lineHeight: 1.2 }}>
+              Travel Mentor <span className="gold-text">AI</span>
+            </div>
+            <div style={{ fontSize: 11, color: "#6B7280", fontFamily: "'DM Mono', monospace" }}>
+              {started ? (loading ? "escribiendo..." : "en línea") : "Coach de ventas turístico"}
+            </div>
+          </div>
+        </div>
+
+        {started && msgCount >= 6 && (
+          <button
+            onClick={handleGenerateSummary}
+            disabled={generatingSummary}
+            style={{
+              padding: "8px 16px", borderRadius: 10,
+              background: generatingSummary ? "#1C2030" : "rgba(212,168,71,0.15)",
+              border: "1px solid rgba(212,168,71,0.3)",
+              color: generatingSummary ? "#6B7280" : "#D4A847",
+              fontSize: 12, fontWeight: 600, fontFamily: "'DM Mono', monospace",
+              letterSpacing: 0.5, display: "flex", alignItems: "center", gap: 6,
+            }}
+          >
+            {generatingSummary
+              ? <><div style={{ width:12, height:12, borderRadius:"50%", border:"2px solid rgba(212,168,71,0.3)", borderTopColor:"#D4A847", animation:"spin 0.8s linear infinite" }}/>Generando...</>
+              : "✦ Ver resumen"}
+          </button>
+        )}
+      </div>
+
+      {/* CHAT AREA */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px" }}>
+        <div style={{ maxWidth: 680, margin: "0 auto" }}>
+
+          {/* WELCOME SCREEN */}
+          {!started && (
+            <div style={{ textAlign: "center", padding: "60px 20px 40px", animation: "fadeUp 0.5s both" }}>
+              <div style={{
+                width: 72, height: 72, borderRadius: "50%",
+                background: "linear-gradient(135deg, #D4A847, #F0C96A)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 28, fontWeight: 900, color: "#0A0C10",
+                fontFamily: "'Cormorant Garamond', serif",
+                margin: "0 auto 24px",
+                boxShadow: "0 0 40px rgba(212,168,71,0.3)",
+              }}>T</div>
+              <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 40, fontWeight: 700, color: "#fff", lineHeight: 1.2, marginBottom: 16 }}>
+                Travel Mentor <span className="gold-text">AI</span>
+              </h1>
+              <p style={{ color: "#9CA3AF", fontSize: 16, lineHeight: 1.7, maxWidth: 420, margin: "0 auto 40px" }}>
+                Tu coach personal de ventas para turismo. Vamos a construir juntos tu sistema completo — desde tu buyer persona hasta tu embudo de ventas.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 40, textAlign: "left" }}>
+                {[
+                  ["🎯", "Buyer persona detallado"],
+                  ["💡", "Propuesta de valor única"],
+                  ["📄", "Lead magnet personalizado"],
+                  ["🔄", "Embudo de ventas completo"],
+                  ["💬", "Mensajes de WhatsApp listos"],
+                  ["🎬", "Ideas de contenido para reels"],
+                ].map(function(item) {
+                  return (
+                    <div key={item[1]} style={{
+                      background: "#141720", border: "1px solid rgba(255,255,255,0.06)",
+                      borderRadius: 12, padding: "12px 14px",
+                      display: "flex", alignItems: "center", gap: 10,
+                    }}>
+                      <span style={{ fontSize: 20 }}>{item[0]}</span>
+                      <span style={{ fontSize: 13, color: "#E8E4D8" }}>{item[1]}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={startChat} className="shimmer-btn" style={{
+                padding: "16px 48px", borderRadius: 14,
+                color: "#0A0C10", fontSize: 16, fontWeight: 700, letterSpacing: 0.3,
+              }}>
+                Comenzar sesión →
+              </button>
+              <p style={{ color: "#4B5563", fontSize: 12, marginTop: 16 }}>
+                Al final recibirás un resumen ejecutivo completo descargable
+              </p>
+            </div>
+          )}
+
+          {/* MESSAGES */}
+          {messages.map(function(msg, i) {
+            return <MessageBubble key={i} msg={msg} />;
+          })}
+
+          {/* TYPING INDICATOR */}
+          {loading && (
+            <div className="msg-appear" style={{ display: "flex", gap: 10, marginBottom: 12, alignItems: "flex-end" }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+                background: "linear-gradient(135deg, #D4A847, #F0C96A)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 14, fontWeight: 700, color: "#0A0C10",
+                fontFamily: "'Cormorant Garamond', serif",
+              }}>T</div>
+              <TypingDots />
+            </div>
+          )}
+
+          <div ref={bottomRef} />
+        </div>
+      </div>
+
+      {/* INPUT AREA */}
+      {started && (
+        <div style={{
+          flexShrink: 0,
+          background: "rgba(10,12,16,0.95)",
+          backdropFilter: "blur(16px)",
+          borderTop: "1px solid rgba(255,255,255,0.06)",
+          padding: "14px 16px",
+        }}>
+          <div style={{ maxWidth: 680, margin: "0 auto" }}>
+            <div style={{
+              display: "flex", gap: 10, alignItems: "flex-end",
+              background: "#141720", border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 16, padding: "10px 10px 10px 16px",
+              transition: "border-color 0.2s",
+            }}>
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={function(e) { setInput(e.target.value); }}
+                onKeyDown={handleKey}
+                placeholder="Escribe tu respuesta..."
+                disabled={loading}
+                rows={1}
+                style={{
+                  flex: 1, background: "transparent", border: "none",
+                  color: "#fff", fontSize: 14, lineHeight: 1.6,
+                  resize: "none", maxHeight: 120, overflowY: "auto",
+                  paddingTop: 2,
+                }}
+                onInput={function(e) {
+                  e.target.style.height = "auto";
+                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                }}
+              />
+              <button
+                onClick={sendUserMessage}
+                disabled={!input.trim() || loading}
+                style={{
+                  width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+                  background: input.trim() && !loading ? "#D4A847" : "#1C2030",
+                  color: input.trim() && !loading ? "#0A0C10" : "#4B5563",
+                  fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "all 0.2s",
+                }}
+              >
+                →
+              </button>
+            </div>
+            <p style={{ textAlign: "center", fontSize: 11, color: "#374151", marginTop: 8, fontFamily: "'DM Mono', monospace" }}>
+              Enter para enviar · Shift+Enter para nueva línea
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* SUMMARY MODAL */}
+      {summary && (
+        <SummaryModal
+          summary={summary}
+          onClose={function() { setSummary(null); }}
+          onDownload={handleDownload}
+        />
+      )}
+    </div>
   );
 }
